@@ -1,0 +1,12 @@
+# 构建产物
+WeDesk.app/
+build/
+*.dSYM/
+
+# 预览脚本生成的截图
+preview-*.png
+
+# 系统杂项
+.DS_Store
+*.log
+preview.png

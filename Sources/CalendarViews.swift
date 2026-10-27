@@ -1,0 +1,884 @@
+import AppKit
+import SwiftUI
+
+enum DateUtil {
+    private static let locale = Locale(identifier: "zh_CN")
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = "M月d日 EEE"
+        return formatter
+    }()
+
+    private static let dayWithYearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = "yyyy年M月d日 EEE"
+        return formatter
+    }()
+
+    private static let monthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = "yyyy年M月"
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private static let monthDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = "M月d日"
+        return formatter
+    }()
+
+    private static let monthDayYearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = "yyyy年M月d日"
+        return formatter
+    }()
+
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = "EEE"
+        return formatter
+    }()
+
+    static func dayDelta(to date: Date, from base: Date = Date()) -> Int {
+        let calendar = Calendar.current
+        return calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: base),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
+    }
+
+    static func todayLine(for date: Date = Date()) -> String {
+        dayFormatter.string(from: date)
+    }
+
+    static func shortDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let isThisYear = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
+        return (isThisYear ? dayFormatter : dayWithYearFormatter).string(from: date)
+    }
+
+    static func monthDay(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let isThisYear = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
+        return (isThisYear ? monthDayFormatter : monthDayYearFormatter).string(from: date)
+    }
+
+    static func timeOnly(_ date: Date) -> String {
+        timeFormatter.string(from: date)
+    }
+
+    static func weekdayName(_ date: Date) -> String {
+        weekdayFormatter.string(from: date)
+    }
+
+    /// 温度统一取整并带上度数符号。
+    static func temperature(_ value: Double) -> String {
+        "\(Int(value.rounded()))°"
+    }
+
+    static func monthTitle(_ date: Date) -> String {
+        monthFormatter.string(from: date)
+    }
+
+    static func todoDueLabel(_ date: Date, now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        let time = timeFormatter.string(from: date)
+
+        if calendar.isDateInToday(date) {
+            return "今天 \(time)"
+        }
+        if calendar.isDateInTomorrow(date) {
+            return "明天 \(time)"
+        }
+        if calendar.isDateInYesterday(date) {
+            return "昨天 \(time)"
+        }
+
+        let delta = dayDelta(to: date, from: now)
+        if delta > 1 && delta < 7 {
+            return "\(weekdayFormatter.string(from: date)) \(time)"
+        }
+
+        let isThisYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        let day = (isThisYear ? monthDayFormatter : monthDayYearFormatter).string(from: date)
+        return "\(day) \(time)"
+    }
+
+    static func todoAbsoluteLabel(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let isThisYear = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
+        let day = (isThisYear ? monthDayFormatter : monthDayYearFormatter).string(from: date)
+        return "\(day) \(weekdayFormatter.string(from: date)) \(timeFormatter.string(from: date))"
+    }
+
+    static func defaultTodoDueDate() -> Date {
+        let calendar = Calendar.current
+        let now = Date()
+        if let six = calendar.date(bySettingHour: 18, minute: 0, second: 0, of: now),
+           six > now.addingTimeInterval(1800) {
+            return six
+        }
+        return todoTomorrowMorning()
+    }
+
+    static func todoOneHourLater() -> Date {
+        let raw = Date().addingTimeInterval(3600)
+        let rounded = (raw.timeIntervalSince1970 / 300).rounded() * 300
+        return Date(timeIntervalSince1970: rounded)
+    }
+
+    static func todoTomorrowMorning() -> Date {
+        let calendar = Calendar.current
+        let now = Date()
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
+        return calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+    }
+}
+
+// MARK: - Calendar
+
+struct CalendarPopover: View {
+    let accent: Color
+    var countdownDays: Set<Date> = []
+    var todoDays: Set<Date> = []
+    var tasksProvider: ((Date) -> [Todo])? = nil
+    var onToggleTask: ((Todo) -> Void)? = nil
+    var selection: Binding<Date>? = nil
+    var initialMonth: Date? = nil
+    var onPick: (() -> Void)? = nil
+
+    @State private var month = Date()
+    @State private var presentedDay: Date?
+
+    private let weekdaySymbols = ["一", "二", "三", "四", "五", "六", "日"]
+
+    var body: some View {
+        let days = cells
+        let lunarMonth = ChineseCalendarInfo.lunarMonthName(for: month)
+
+        VStack(spacing: 9) {
+            HStack(spacing: 0) {
+                yearButton("chevron.left.2", help: "上一年") { shiftYear(-1) }
+                navButton("chevron.left", help: "上个月") { shiftMonth(-1) }
+                Spacer(minLength: 2)
+
+                Button {
+                    month = Date()
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(DateUtil.monthTitle(month))
+                            .font(.app(size: 12, weight: .semibold))
+                            .foregroundStyle(.primary)
+
+                        if isProvisionalYear {
+                            Text("预测")
+                                .font(.app(size: 7, weight: .semibold))
+                                .foregroundStyle(Color(nsColor: .systemOrange))
+                                .padding(.horizontal, 3.5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color(nsColor: .systemOrange).opacity(0.12)))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("回到今天")
+
+                if !lunarMonth.isEmpty {
+                    Text("农历\(lunarMonth)")
+                        .font(.app(size: 8.5))
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 5)
+                }
+
+                Spacer(minLength: 2)
+                navButton("chevron.right", help: "下个月") { shiftMonth(1) }
+                yearButton("chevron.right.2", help: "下一年") { shiftYear(1) }
+            }
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(minimum: 28), spacing: 2), count: 7),
+                spacing: 2
+            ) {
+                ForEach(weekdaySymbols, id: \.self) { symbol in
+                    Text(symbol)
+                        .font(.app(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary.opacity(0.7))
+                        .frame(height: 16)
+                }
+
+                ForEach(days.indices, id: \.self) { index in
+                    dayCell(days[index])
+                }
+            }
+
+            if let scheduleNote {
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .font(.app(size: 8))
+                    Text(scheduleNote)
+                        .font(.app(size: 8.5))
+                }
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(12)
+        .onAppear {
+            month = initialMonth ?? selection?.wrappedValue ?? Date()
+        }
+    }
+
+    private func navButton(_ systemName: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.app(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func yearButton(_ systemName: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.app(size: 7.5, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .frame(width: 16, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func dayCell(_ date: Date?) -> some View {
+        Group {
+            if let date {
+                let calendar = Calendar.current
+                let isToday = calendar.isDateInToday(date)
+                let isSelected = selection.map { calendar.isDate(date, inSameDayAs: $0.wrappedValue) } ?? false
+                let isFilled = selection == nil ? isToday : isSelected
+                let badge = ChineseCalendarInfo.badge(for: date)
+                let hasCountdown = countdownDays.contains(calendar.startOfDay(for: date))
+                let hasTodo = todoDays.contains(calendar.startOfDay(for: date))
+
+                let cell = VStack(spacing: 0) {
+                    Text("\(calendar.component(.day, from: date))")
+                        .font(.app(size: 11, weight: isToday || isSelected ? .semibold : .regular))
+                        .foregroundStyle(isFilled ? Color.white : (isToday ? accent : Color.primary.opacity(0.84)))
+                        .frame(width: 24, height: 24)
+                        .background {
+                            if isFilled {
+                                Circle()
+                                    .fill(accent)
+                            } else if isToday {
+                                Circle()
+                                    .strokeBorder(accent.opacity(0.5), lineWidth: 1)
+                            }
+                        }
+
+                    HStack(spacing: 2) {
+                        Text(badge.text)
+                            .font(.app(size: 8, weight: badge.kind == .lunar ? .regular : .medium))
+                            .foregroundStyle(badgeColor(badge))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+
+                        if hasCountdown {
+                            Circle()
+                                .fill(accent)
+                                .frame(width: 3, height: 3)
+                        }
+
+                        if hasTodo {
+                            Circle()
+                                .strokeBorder(Color.primary.opacity(0.42), lineWidth: 1)
+                                .frame(width: 4, height: 4)
+                        }
+                    }
+                    .frame(height: 10)
+                }
+                .frame(width: 32, height: 34)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+
+                if let selection {
+                    Button {
+                        selection.wrappedValue = calendar.startOfDay(for: date)
+                        onPick?()
+                    } label: {
+                        cell
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    cell
+                        .onTapGesture {
+                            presentedDay = calendar.startOfDay(for: date)
+                        }
+                        .popover(isPresented: dayPopoverBinding(for: date), arrowEdge: .bottom) {
+                            DayTasksPopover(
+                                date: date,
+                                accent: accent,
+                                tasks: tasksProvider?(date) ?? [],
+                                onToggle: { onToggleTask?($0) }
+                            )
+                            .frame(width: 232)
+                        }
+                }
+            } else {
+                Color.clear
+                    .frame(maxWidth: .infinity, minHeight: 34)
+            }
+        }
+    }
+
+    private func dayPopoverBinding(for date: Date) -> Binding<Bool> {
+        Binding(
+            get: {
+                guard let presentedDay else { return false }
+                return Calendar.current.isDate(presentedDay, inSameDayAs: date)
+            },
+            set: { presented in
+                if !presented { self.presentedDay = nil }
+            }
+        )
+    }
+
+    private func badgeColor(_ badge: ChineseCalendarInfo.Badge) -> Color {
+        switch badge.kind {
+        case .lunar:
+            return Color.secondary
+        case .festival, .rest:
+            return Color(nsColor: .systemRed)
+        case .makeup:
+            return Color(nsColor: .systemOrange)
+        }
+    }
+
+    private var scheduleNote: String? {
+        if displayYear == 2027 {
+            return "2027 年放假安排为预测版，待国务院公布"
+        }
+        if displayYear >= 2028 {
+            return "\(displayYear) 年放假安排待公布"
+        }
+        return nil
+    }
+
+    private var displayYear: Int {
+        Calendar.current.component(.year, from: month)
+    }
+
+    private var isProvisionalYear: Bool {
+        displayYear == 2027
+    }
+
+    private var cells: [Date?] {
+        let calendar = Calendar.current
+        guard let interval = calendar.dateInterval(of: .month, for: month) else { return [] }
+
+        let first = interval.start
+        let weekday = calendar.component(.weekday, from: first)
+        let leading = (weekday + 5) % 7
+        let dayCount = calendar.range(of: .day, in: .month, for: first)?.count ?? 30
+
+        var result = Array<Date?>(repeating: nil, count: leading)
+        for offset in 0..<dayCount {
+            result.append(calendar.date(byAdding: .day, value: offset, to: first))
+        }
+        while result.count % 7 != 0 {
+            result.append(nil)
+        }
+        return result
+    }
+
+    private func shiftMonth(_ delta: Int) {
+        let calendar = Calendar.current
+        let base = calendar.dateInterval(of: .month, for: month)?.start ?? month
+        if let next = calendar.date(byAdding: .month, value: delta, to: base) {
+            month = next
+        }
+    }
+
+    private func shiftYear(_ delta: Int) {
+        let calendar = Calendar.current
+        let base = calendar.dateInterval(of: .month, for: month)?.start ?? month
+        if let next = calendar.date(byAdding: .year, value: delta, to: base) {
+            month = next
+        }
+    }
+}
+
+// MARK: - Day tasks (calendar ↔ todo)
+
+struct DayTasksPopover: View {
+    let date: Date
+    let accent: Color
+    let tasks: [Todo]
+    let onToggle: (Todo) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(DateUtil.shortDate(date))
+                    .font(.app(size: 11.5, weight: .semibold))
+                Text("农历\(ChineseCalendarInfo.lunarMonthName(for: date))")
+                    .font(.app(size: 8.5))
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
+                Text("\(tasks.count)")
+                    .font(.app(size: 9.5, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.07))
+                .frame(height: 0.5)
+
+            if tasks.isEmpty {
+                Text("这一天还没有待办")
+                    .font(.app(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 3)
+            } else {
+                ForEach(tasks) { task in
+                    DayTaskRow(task: task, accent: accent, onToggle: onToggle)
+                }
+            }
+        }
+        .padding(10)
+    }
+}
+
+private struct DayTaskRow: View {
+    let task: Todo
+    let accent: Color
+    let onToggle: (Todo) -> Void
+
+    @State private var hovered = false
+
+    private var isOverdue: Bool {
+        guard let due = task.dueAt else { return false }
+        return due < Date()
+    }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Button {
+                onToggle(task)
+            } label: {
+                Circle()
+                    .strokeBorder(Color.primary.opacity(0.28), lineWidth: 1.2)
+                    .frame(width: 12, height: 12)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("标记完成")
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(task.title)
+                    .font(.app(size: 11, weight: .medium))
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+
+                HStack(spacing: 4) {
+                    if let due = task.dueAt {
+                        Text(DateUtil.timeOnly(due))
+                            .font(.app(size: 9.5).monospacedDigit())
+                            .foregroundStyle(isOverdue ? Color(nsColor: .systemRed) : Color.secondary)
+                    }
+                    ForEach(task.people, id: \.self) { person in
+                        Text("@\(person)")
+                            .font(.app(size: 9))
+                            .foregroundStyle(accent)
+                    }
+                }
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Color.primary.opacity(hovered ? 0.05 : 0))
+        )
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+}
+
+// MARK: - Countdowns
+
+struct CountdownPopover: View {
+    @EnvironmentObject private var store: TodoStore
+    let accent: Color
+    /// 作为桌面卡片使用时列表吃掉多余高度；在弹出层里仍按内容高度显示。
+    var fillHeight = false
+
+    @State private var title = ""
+    @State private var date = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+    @State private var hoveredID: UUID?
+    @State private var showDatePicker = false
+    @State private var showMorePresets = false
+
+    private var events: [Countdown] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let upcoming = store.countdowns
+            .filter { calendar.startOfDay(for: $0.date) >= today }
+            .sorted { $0.date < $1.date }
+        let past = store.countdowns
+            .filter { calendar.startOfDay(for: $0.date) < today }
+            .sorted { $0.date > $1.date }
+        return upcoming + past
+    }
+
+    private var listHeight: CGFloat {
+        min(CGFloat(events.count) * 37, 185)
+    }
+
+    private var canAdd: Bool {
+        !title.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text("倒数日")
+                    .font(.app(size: 12, weight: .semibold))
+
+                if !store.countdowns.isEmpty {
+                    Text("\(store.countdowns.count)")
+                        .font(.app(size: 9.5, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Group {
+                if events.isEmpty {
+                    Text("还没有倒数日，添加一个重要日子吧")
+                        .font(.app(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 2)
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 0) {
+                            ForEach(events) { event in
+                                CountdownRow(
+                                    event: event,
+                                    accent: accent,
+                                    hovered: hoveredID == event.id
+                                )
+                                .onHover { inside in
+                                    if inside {
+                                        hoveredID = event.id
+                                    } else if hoveredID == event.id {
+                                        hoveredID = nil
+                                    }
+                                }
+
+                                if event.id != events.last?.id {
+                                    Rectangle()
+                                        .fill(Color.primary.opacity(0.06))
+                                        .frame(height: 0.5)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: fillHeight ? .infinity : listHeight,
+                alignment: events.isEmpty ? .center : .topLeading
+            )
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.07))
+                .frame(height: 0.5)
+
+            HStack(spacing: 5) {
+                ForEach(CountdownPresets.popular) { preset in
+                    CountdownPresetChip(
+                        preset: preset,
+                        date: CountdownPresets.nextDate(for: preset.rule),
+                        added: isPresetAdded(preset),
+                        accent: accent
+                    ) {
+                        add(preset)
+                    }
+                }
+
+                Button {
+                    showMorePresets.toggle()
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("更多")
+                            .font(.app(size: 10, weight: .medium))
+                        Image(systemName: "ellipsis")
+                            .font(.app(size: 8.5, weight: .semibold))
+                    }
+                    .foregroundStyle(showMorePresets ? accent : Color.primary.opacity(0.7))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.primary.opacity(showMorePresets ? 0.09 : 0.05)))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showMorePresets, arrowEdge: .top) {
+                    CountdownPresetMorePanel(accent: accent) { preset in
+                        add(preset)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            TextField("名称，如：述职汇报", text: $title)
+                .textFieldStyle(.plain)
+                .font(.app(size: 11.5))
+                .onSubmit(add)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.05))
+                )
+
+            HStack(spacing: 8) {
+                Button {
+                    showDatePicker.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.app(size: 9.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Text(DateUtil.shortDate(date))
+                            .font(.app(size: 10.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("选择日期")
+                .popover(isPresented: $showDatePicker, arrowEdge: .top) {
+                    CalendarPopover(accent: accent, selection: $date) {
+                        showDatePicker = false
+                    }
+                    .frame(width: 260)
+                }
+
+                Spacer(minLength: 0)
+
+                Button(action: add) {
+                    Text("添加")
+                        .font(.app(size: 10.5, weight: .semibold))
+                        .foregroundStyle(canAdd ? Color.white : Color.secondary)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule().fill(canAdd ? accent : Color.primary.opacity(0.06))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+    }
+
+    private func add() {
+        guard canAdd else { return }
+        store.addCountdown(title, on: date)
+        title = ""
+        if let next = Calendar.current.date(byAdding: .day, value: 7, to: Date()) {
+            date = next
+        }
+        hoveredID = nil
+    }
+
+    private func add(_ preset: CountdownPreset) {
+        guard !isPresetAdded(preset) else { return }
+        store.addCountdown(preset.title, on: CountdownPresets.nextDate(for: preset.rule))
+        hoveredID = nil
+    }
+
+    private func isPresetAdded(_ preset: CountdownPreset) -> Bool {
+        let calendar = Calendar.current
+        let target = calendar.startOfDay(for: CountdownPresets.nextDate(for: preset.rule))
+        return store.countdowns.contains {
+            $0.title == preset.title && calendar.startOfDay(for: $0.date) == target
+        }
+    }
+}
+
+struct CountdownPresetChip: View {
+    let preset: CountdownPreset
+    let date: Date
+    let added: Bool
+    let accent: Color
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                if added {
+                    Image(systemName: "checkmark")
+                        .font(.app(size: 8, weight: .bold))
+                }
+                Text(preset.title)
+                    .font(.app(size: 10, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(added ? Color.secondary : (hovered ? accent : Color.primary.opacity(0.72)))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.primary.opacity(added ? 0.03 : (hovered ? 0.09 : 0.05))))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(added)
+        .onHover { inside in hovered = inside }
+        .help("\(preset.title) · \(DateUtil.monthDay(date))")
+    }
+}
+
+struct CountdownPresetMorePanel: View {
+    let accent: Color
+    let onPick: (CountdownPreset) -> Void
+
+    @State private var hoveredID: String?
+
+    private var rows: [(preset: CountdownPreset, date: Date)] {
+        CountdownPresets.more.map { ($0, CountdownPresets.nextDate(for: $0.rule)) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("更多节日")
+                .font(.app(size: 10.5, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+
+            ForEach(rows, id: \.preset.id) { row in
+                Button {
+                    onPick(row.preset)
+                } label: {
+                    HStack(spacing: 7) {
+                        Text(row.preset.title)
+                            .font(.app(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: 4)
+                        Text(DateUtil.monthDay(row.date))
+                            .font(.app(size: 10))
+                            .foregroundStyle(.secondary)
+                        Text("\(DateUtil.dayDelta(to: row.date)) 天")
+                            .font(.app(size: 10, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(accent)
+                            .fixedSize()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(Color.primary.opacity(hoveredID == row.preset.id ? 0.06 : 0))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { inside in
+                    if inside {
+                        hoveredID = row.preset.id
+                    } else if hoveredID == row.preset.id {
+                        hoveredID = nil
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .frame(width: 196)
+    }
+}
+
+struct CountdownRow: View {
+    @EnvironmentObject private var store: TodoStore
+    let event: Countdown
+    let accent: Color
+    let hovered: Bool
+
+    var body: some View {
+        let delta = DateUtil.dayDelta(to: event.date)
+
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(event.title)
+                    .font(.app(size: 11.5, weight: .medium))
+                    .foregroundStyle(delta < 0 ? Color.secondary : Color.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(DateUtil.shortDate(event.date))
+                    .font(.app(size: 9.5))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer(minLength: 4)
+
+            Text(delta == 0 ? "今天" : (delta > 0 ? "\(delta) 天" : "已过 \(-delta) 天"))
+                .font(.app(size: 10.5, weight: .semibold).monospacedDigit())
+                .foregroundStyle(delta < 0 ? Color.secondary.opacity(0.65) : accent)
+                .fixedSize()
+
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    store.deleteCountdown(event)
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.app(size: 7.5, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14, height: 14)
+                    .background(Circle().fill(Color.primary.opacity(0.06)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .opacity(hovered ? 1 : 0)
+            .allowsHitTesting(hovered)
+        }
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .opacity(delta < 0 ? 0.6 : 1)
+        .contextMenu {
+            Button("删除", role: .destructive) {
+                store.deleteCountdown(event)
+            }
+        }
+    }
+}

@@ -1,0 +1,9 @@
+本目录内的字体随应用一起打包，用于界面中文显示。
+
+LXGWWenKai-Regular.ttf / LXGWWenKai-Medium.ttf
+  字体：霞鹜文楷（LXGW WenKai）
+  上游：https://github.com/lxgw/LxgwWenKai
+  许可：SIL Open Font License 1.1（https://scripts.sil.org/OFL）
+
+按 OFL 要求，字体本体不得单独出售；修改后的版本不得使用「Reserved Font Name」命名。
+应用代码部分与本字体许可相互独立。
