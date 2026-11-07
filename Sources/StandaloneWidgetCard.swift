@@ -7,6 +7,7 @@ struct StandaloneWidgetCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var store: TodoStore
     @State private var hovering = false
     @State private var confirmHide = false
     @State private var confirmReset: DispatchWorkItem?
@@ -26,7 +27,7 @@ struct StandaloneWidgetCard<Content: View>: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .strokeBorder(
-                        colorScheme == .light ? Color.black.opacity(0.07) : Color.white.opacity(0.14),
+                        Color.cardBorder(material: store.cardMaterial, colorScheme: colorScheme),
                         lineWidth: 0.5
                     )
             )
@@ -116,11 +117,7 @@ struct StandaloneWidgetCard<Content: View>: View {
 
     @ViewBuilder
     private var cardBackground: some View {
-        if colorScheme == .light {
-            Color.white
-        } else {
-            Color(nsColor: .windowBackgroundColor)
-        }
+        CardBackground(material: store.cardMaterial, clarity: store.glassClarity)
     }
 }
 

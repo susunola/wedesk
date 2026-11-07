@@ -13,6 +13,8 @@ struct WidgetLibraryView: View {
             divider
             rows
             divider
+            appearanceSection
+            divider
             hotKeySection
             divider
             footer
@@ -28,6 +30,74 @@ struct WidgetLibraryView: View {
                 .strokeBorder(Color.primary.opacity(colorScheme == .light ? 0.09 : 0.16), lineWidth: 0.5)
         )
         .onExitCommand(perform: onClose)
+    }
+
+    private var appearanceSection: some View {
+        let glass = store.cardMaterial.isGlass
+
+        return VStack(spacing: 7) {
+            HStack(spacing: 8) {
+                Image(systemName: "drop.fill")
+                    .font(.app(size: 11, weight: .medium))
+                    .foregroundStyle(glass ? store.accent : Color.secondary)
+                    .frame(width: 30, height: 30)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(glass ? store.accent.opacity(0.13) : Color.primary.opacity(0.055))
+                    )
+
+                VStack(alignment: .leading, spacing: 1.5) {
+                    Text("卡片材质")
+                        .font(.app(size: 12, weight: .medium))
+                    Text(glass ? "桌布透进来，文字依旧清晰" : "不透明的纯白卡片")
+                        .font(.app(size: 9.5))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 4)
+            }
+
+            HStack(spacing: 4) {
+                ForEach(CardMaterial.allCases) { material in
+                    MaterialChip(
+                        material: material,
+                        selected: store.cardMaterial == material,
+                        accent: store.accent
+                    ) {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            store.setCardMaterial(material)
+                        }
+                    }
+                }
+            }
+
+            if glass {
+                HStack(spacing: 8) {
+                    Text("乳白")
+                        .font(.app(size: 9.5))
+                        .foregroundStyle(.tertiary)
+
+                    Slider(
+                        value: Binding(
+                            get: { store.glassClarity },
+                            set: { store.setGlassClarity($0) }
+                        ),
+                        in: 0...1
+                    )
+                    .controlSize(.mini)
+                    .tint(store.accent)
+                    .help("白纱浓度：越往右越通透")
+
+                    Text("通透")
+                        .font(.app(size: 9.5))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.leading, 38)
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
     }
 
     private var hotKeySection: some View {
@@ -210,6 +280,33 @@ struct WidgetLibraryView: View {
         Rectangle()
             .fill(Color.primary.opacity(0.07))
             .frame(height: 0.5)
+    }
+}
+
+private struct MaterialChip: View {
+    let material: CardMaterial
+    let selected: Bool
+    let accent: Color
+    let onPick: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: onPick) {
+            Text(material.title)
+                .font(.app(size: 9.5, weight: selected ? .semibold : .medium))
+                .foregroundStyle(selected ? Color.white : Color.primary.opacity(0.70))
+                .frame(maxWidth: .infinity)
+                .frame(height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(selected ? accent : Color.primary.opacity(hovering ? 0.075 : 0.04))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(material.help)
+        .onHover { hovering = $0 }
     }
 }
 

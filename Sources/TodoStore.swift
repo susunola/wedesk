@@ -72,6 +72,9 @@ final class TodoStore: ObservableObject {
     @Published private(set) var avatarImage: NSImage?
     @Published private(set) var hotKey = HotKeySetting.default
     @Published private(set) var hotKeyConflict = false
+    /// 卡片底面材质与通透度，所有便签共用一套设置。
+    @Published private(set) var cardMaterial: CardMaterial = .solid
+    @Published private(set) var glassClarity: Double = 0.55
     /// 卡片里的"今天"都锚定这个时间。跨午夜或睡眠醒来后由下面的看门狗刷新，
     /// 所有观察 store 的卡片会一起重算，日历高亮不会再停在开机那天。
     @Published private(set) var dayAnchor = Date()
@@ -83,6 +86,8 @@ final class TodoStore: ObservableObject {
     private let avatarOnKey = "desktodo.avatar.on.v1"
     private let avatarPathKey = "desktodo.avatar.path.v1"
     private let hotKeyKey = "desktodo.hotkey.v1"
+    private let cardMaterialKey = "wedesk.card.material.v1"
+    private let glassClarityKey = "wedesk.card.clarity.v1"
 
     private var dayTimer: Timer?
     private var dayChangeObserver: NSObjectProtocol?
@@ -91,6 +96,8 @@ final class TodoStore: ObservableObject {
         pinned = UserDefaults.standard.object(forKey: pinnedKey) as? Bool ?? true
         accentIndex = UserDefaults.standard.object(forKey: accentKey) as? Int ?? 0
         showAvatar = UserDefaults.standard.object(forKey: avatarOnKey) as? Bool ?? true
+        cardMaterial = CardMaterial(rawValue: UserDefaults.standard.integer(forKey: cardMaterialKey)) ?? .solid
+        glassClarity = UserDefaults.standard.object(forKey: glassClarityKey) as? Double ?? 0.55
         if let saved = UserDefaults.standard.object(forKey: hotKeyKey) as? [Int],
            saved.count == 2 {
             hotKey = HotKeySetting(keyCode: UInt32(saved[0]), modifiers: UInt32(saved[1]))
@@ -144,6 +151,22 @@ final class TodoStore: ObservableObject {
         guard index != accentIndex, index >= 0, index < Palette.accents.count else { return }
         accentIndex = index
         UserDefaults.standard.set(index, forKey: accentKey)
+    }
+
+    // MARK: - 卡片材质
+
+    func setCardMaterial(_ value: CardMaterial) {
+        guard value != cardMaterial else { return }
+        cardMaterial = value
+        UserDefaults.standard.set(value.rawValue, forKey: cardMaterialKey)
+    }
+
+    /// 通透度 0（乳白）到 1（最透）。
+    func setGlassClarity(_ value: Double) {
+        let clamped = min(max(value, 0), 1)
+        guard abs(clamped - glassClarity) > 0.001 else { return }
+        glassClarity = clamped
+        UserDefaults.standard.set(clamped, forKey: glassClarityKey)
     }
 
     // MARK: - Avatar
