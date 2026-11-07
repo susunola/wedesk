@@ -147,6 +147,8 @@ final class WidgetManager: ObservableObject {
     @Published private(set) var deskVisible = true
 
     private(set) var windows: [WidgetKind: WidgetWindow] = [:]
+    /// 日历点年份弹出的全年总览，临时窗口，不进布局也不写盘。
+    private var yearWindow: WidgetWindow?
     private var layouts: [WidgetKind: WidgetLayout] = [:]
     private var cancellables: Set<AnyCancellable> = []
     private var started = false
@@ -311,10 +313,79 @@ final class WidgetManager: ObservableObject {
 
     func hideAll() {
         deskVisible = false
+        closeYearOverview()
         for window in windows.values {
             window.orderOut(nil)
         }
         NSApp.deactivate()
+    }
+
+    // MARK: - 全年总览
+
+    /// 日历卡上的年份是入口：点开是全年，再点一次收起。
+    func toggleYearOverview() {
+        if yearWindow == nil {
+            showYearOverview()
+        } else {
+            closeYearOverview()
+        }
+    }
+
+    func closeYearOverview() {
+        guard let yearWindow else { return }
+        yearWindow.orderOut(nil)
+        self.yearWindow = nil
+    }
+
+    private func showYearOverview() {
+        let card = YearOverviewView.cardSize
+        let padding = WidgetKind.shadowPadding
+        let windowSize = CGSize(width: card.width + padding * 2, height: card.height + padding * 2)
+
+        let panel = WidgetWindow(
+            contentRect: NSRect(origin: .zero, size: windowSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.isMovableByWindowBackground = false
+        panel.animationBehavior = .none
+        panel.isReleasedWhenClosed = false
+        // 卡片留在桌面层，但这是用户主动点开的临时面板，得浮在前面才看得见。
+        panel.applyPin(false)
+
+        let calendar = Calendar.current
+        let root = AnyView(
+            YearOverviewView(
+                year: calendar.component(.year, from: store.dayAnchor),
+                onPickMonth: { [weak self] monthStart in
+                    guard let self else { return }
+                    self.store.calendarFocusMonth = monthStart
+                    self.closeYearOverview()
+                    if self.deskVisible {
+                        self.window(for: .calendar)?.orderFrontRegardless()
+                    }
+                },
+                onClose: { [weak self] in
+                    self?.closeYearOverview()
+                }
+            )
+            .environmentObject(store)
+        )
+        panel.contentView = NSHostingView(rootView: root)
+
+        let anchor = window(for: .calendar)?.frame ?? .zero
+        let area = visibleArea(containing: anchor)
+        let topLeftX = area.midX - windowSize.width / 2
+        let topLeftY = area.maxY - 28
+        panel.setFrameTopLeftPoint(NSPoint(x: topLeftX, y: topLeftY))
+
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        yearWindow = panel
     }
 
     func toggleAll() {
@@ -681,6 +752,9 @@ final class WidgetManager: ObservableObject {
                     },
                     onResetPositions: { [weak self] in
                         self?.resetPositions()
+                    },
+                    onOpenYearOverview: { [weak self] in
+                        self?.toggleYearOverview()
                     }
                 )
             )
@@ -698,7 +772,11 @@ final class WidgetManager: ObservableObject {
             return AnyView(
                 CalendarWidgetRoot(
                     onHide: { [weak self] in
+                        self?.closeYearOverview()
                         self?.remove(.calendar)
+                    },
+                    onOpenYear: { [weak self] in
+                        self?.toggleYearOverview()
                     }
                 )
             )

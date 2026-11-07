@@ -9,6 +9,7 @@ struct ContentView: View {
     var onHideSelf: (() -> Void)? = nil
     var onOpenLibrary: (() -> Void)? = nil
     var onResetPositions: (() -> Void)? = nil
+    var onOpenYearOverview: (() -> Void)? = nil
 
     @State private var draft = ""
     @State private var draftDue: Date?
@@ -108,6 +109,11 @@ struct ContentView: View {
                     tasksProvider: { store.pendingTodos(on: $0) },
                     onToggleTask: { store.toggle($0) },
                     onAddTask: { title, date in store.add(title, onDay: date) },
+                    onOpenYear: onOpenYearOverview,
+                    focusMonth: Binding(
+                        get: { store.calendarFocusMonth },
+                        set: { store.calendarFocusMonth = $0 }
+                    ),
                     dayAnchor: store.dayAnchor
                 )
                     .frame(width: 260)

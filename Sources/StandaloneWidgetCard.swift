@@ -135,6 +135,7 @@ struct CountdownWidgetRoot: View {
 struct CalendarWidgetRoot: View {
     @EnvironmentObject private var store: TodoStore
     let onHide: () -> Void
+    var onOpenYear: (() -> Void)? = nil
 
     var body: some View {
         StandaloneWidgetCard(kind: .calendar, onHide: onHide) {
@@ -145,6 +146,11 @@ struct CalendarWidgetRoot: View {
                 tasksProvider: { store.pendingTodos(on: $0) },
                 onToggleTask: { store.toggle($0) },
                 onAddTask: { title, date in store.add(title, onDay: date) },
+                onOpenYear: onOpenYear,
+                focusMonth: Binding(
+                    get: { store.calendarFocusMonth },
+                    set: { store.calendarFocusMonth = $0 }
+                ),
                 dayAnchor: store.dayAnchor
             )
         }

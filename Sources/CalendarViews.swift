@@ -155,6 +155,10 @@ struct CalendarPopover: View {
     var tasksProvider: ((Date) -> [Todo])? = nil
     var onToggleTask: ((Todo) -> Void)? = nil
     var onAddTask: ((String, Date) -> Void)? = nil
+    /// 点年份时的出口：由外部弹出全年总览。
+    var onOpenYear: (() -> Void)? = nil
+    /// 外部（全年总览）要求跳到的月份，用完即清。
+    var focusMonth: Binding<Date?>? = nil
     var selection: Binding<Date>? = nil
     var initialMonth: Date? = nil
     var onPick: (() -> Void)? = nil
@@ -236,6 +240,11 @@ struct CalendarPopover: View {
             }
             lastAnchor = newValue
         }
+        .onChange(of: focusMonth?.wrappedValue) { _, target in
+            guard let target else { return }
+            month = target
+            focusMonth?.wrappedValue = nil
+        }
     }
 
     /// 按周切行，方便每行等分卡片剩余高度。
@@ -265,10 +274,6 @@ struct CalendarPopover: View {
                         .font(.app(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
 
-                    Text(String(year))
-                        .font(.app(size: 10, weight: .medium))
-                        .foregroundStyle(Color.primary.opacity(0.32))
-
                     if !lunarMonth.isEmpty {
                         Text("农历\(lunarMonth)")
                             .font(.app(size: 8.5))
@@ -288,6 +293,26 @@ struct CalendarPopover: View {
             }
             .buttonStyle(.plain)
             .help("回到今天")
+
+            if onOpenYear != nil {
+                // 年份是入口：点开看全年。
+                Button {
+                    onOpenYear?()
+                } label: {
+                    Text(String(year))
+                        .font(.app(size: 10, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(0.36))
+                        .padding(.leading, 5)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("查看 \(year) 全年")
+            } else {
+                Text(String(year))
+                    .font(.app(size: 10, weight: .medium))
+                    .foregroundStyle(Color.primary.opacity(0.32))
+                    .padding(.leading, 5)
+            }
 
             Spacer(minLength: 6)
 

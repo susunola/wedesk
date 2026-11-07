@@ -94,6 +94,8 @@ final class TodoStore: ObservableObject {
     /// 卡片里的"今天"都锚定这个时间。跨午夜或睡眠醒来后由下面的看门狗刷新，
     /// 所有观察 store 的卡片会一起重算，日历高亮不会再停在开机那天。
     @Published private(set) var dayAnchor = Date()
+    /// 全年总览点了某个月就写这里，日历卡跳到那个月后清空。
+    @Published var calendarFocusMonth: Date?
 
     private let itemsKey = "desktodo.items.v1"
     private let countdownsKey = "desktodo.countdowns.v1"

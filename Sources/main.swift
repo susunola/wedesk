@@ -27,6 +27,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         manager.start()
         store.syncReminders()
 
+        // 开发自检用：WEDESK_DEBUG_YEAR=1 启动时直接弹出全年总览，方便截图核对排版。
+        if ProcessInfo.processInfo.environment["WEDESK_DEBUG_YEAR"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.manager.toggleYearOverview()
+            }
+            // WEDESK_DEBUG_PICK=1 再模拟一次"点了某个月"，验证日历卡真的会跳过去。
+            if ProcessInfo.processInfo.environment["WEDESK_DEBUG_PICK"] == "1" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    let components = DateComponents(year: 2026, month: 4, day: 1)
+                    self?.store.calendarFocusMonth = Calendar.current.date(from: components)
+                }
+            }
+        }
+
         installHotKey()
         cancellable = store.$hotKey
             .removeDuplicates()

@@ -190,6 +190,34 @@ enum ChineseCalendarInfo {
         chinese.dateComponents([.day], from: date).day == 1
     }
 
+    private static let stems = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
+    private static let branches = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
+    private static let zodiacs = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"]
+
+    /// 干支与生肖，例如「丙午马年」。按农历年算，春节前仍属上一年。
+    static func lunarYearLabel(for date: Date) -> String {
+        var cycleYear = gregorian.component(.year, from: date)
+        if let newYear = lunarNewYear(in: cycleYear), date < newYear {
+            cycleYear -= 1
+        }
+        let offset = cycleYear - 4
+        let stem = stems[(offset % 10 + 10) % 10]
+        let branchIndex = (offset % 12 + 12) % 12
+        return "\(stem)\(branches[branchIndex])\(zodiacs[branchIndex])年"
+    }
+
+    /// 该公历年里的春节（正月初一），总在 1 月下旬到 2 月下旬之间。
+    private static func lunarNewYear(in gregorianYear: Int) -> Date? {
+        guard let start = gregorian.date(from: DateComponents(year: gregorianYear, month: 1, day: 20)) else {
+            return nil
+        }
+        for offset in 0..<35 {
+            guard let day = gregorian.date(byAdding: .day, value: offset, to: start) else { continue }
+            if isLunarDate(day, month: 1, day: 1) { return day }
+        }
+        return nil
+    }
+
     static func isLunarDate(_ date: Date, month: Int, day: Int) -> Bool {
         let lunar = chinese.dateComponents([.month, .day, .isLeapMonth], from: date)
         return lunar.isLeapMonth != true && lunar.month == month && lunar.day == day
