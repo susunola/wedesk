@@ -67,7 +67,7 @@ enum WidgetKind: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .todo: return CGSize(width: 280, height: 224)
         case .countdown: return CGSize(width: 260, height: 210)
-        case .calendar: return CGSize(width: 260, height: 268)
+        case .calendar: return CGSize(width: 260, height: 298)
         case .pomodoro: return CGSize(width: 260, height: 268)
         case .today: return CGSize(width: 268, height: 236)
         case .weather: return CGSize(width: 252, height: 268)

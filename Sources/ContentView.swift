@@ -107,7 +107,14 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .help("查看日历")
             .popover(isPresented: $showCalendar, arrowEdge: .bottom) {
-                CalendarPopover(accent: store.accent, countdownDays: store.upcomingCountdownDays)
+                CalendarPopover(
+                    accent: store.accent,
+                    countdownDays: store.upcomingCountdownDays,
+                    todoDays: store.pendingTodoDays,
+                    tasksProvider: { store.pendingTodos(on: $0) },
+                    onToggleTask: { store.toggle($0) },
+                    dayAnchor: store.dayAnchor
+                )
                     .frame(width: 260)
             }
 

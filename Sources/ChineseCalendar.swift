@@ -185,6 +185,11 @@ enum ChineseCalendarInfo {
         return nil
     }
 
+    /// 农历月的第一天（正月初一、二月一……），日历用它给这类日子加重显示。
+    static func isLunarMonthStart(_ date: Date) -> Bool {
+        chinese.dateComponents([.day], from: date).day == 1
+    }
+
     static func isLunarDate(_ date: Date, month: Int, day: Int) -> Bool {
         let lunar = chinese.dateComponents([.month, .day, .isLeapMonth], from: date)
         return lunar.isLeapMonth != true && lunar.month == month && lunar.day == day

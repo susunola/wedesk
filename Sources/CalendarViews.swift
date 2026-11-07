@@ -18,13 +18,6 @@ enum DateUtil {
         return formatter
     }()
 
-    private static let monthFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.dateFormat = "yyyy年M月"
-        return formatter
-    }()
-
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = locale
@@ -91,10 +84,6 @@ enum DateUtil {
         "\(Int(value.rounded()))°"
     }
 
-    static func monthTitle(_ date: Date) -> String {
-        monthFormatter.string(from: date)
-    }
-
     static func todoDueLabel(_ date: Date, now: Date = Date()) -> String {
         let calendar = Calendar.current
         let time = timeFormatter.string(from: date)
@@ -152,6 +141,12 @@ enum DateUtil {
 
 // MARK: - Calendar
 
+/// 网格中的一个格子；相邻月份补位的日子会淡化显示，让月份连成一片。
+private struct CalendarSlot {
+    let date: Date
+    let isAdjacent: Bool
+}
+
 struct CalendarPopover: View {
     let accent: Color
     var countdownDays: Set<Date> = []
@@ -170,64 +165,45 @@ struct CalendarPopover: View {
 
     private let weekdaySymbols = ["一", "二", "三", "四", "五", "六", "日"]
 
+    /// 选日期的弹出层只显示本月，避免点了灰色日子后日历没翻页。
+    private var showsAdjacentDays: Bool { selection == nil }
+
+    private var gridColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(minimum: 28), spacing: 2), count: 7)
+    }
+
     var body: some View {
         let days = cells
         let lunarMonth = ChineseCalendarInfo.lunarMonthName(for: month)
 
-        VStack(spacing: 9) {
-            HStack(spacing: 0) {
-                yearButton("chevron.left.2", help: "上一年") { shiftYear(-1) }
-                navButton("chevron.left", help: "上个月") { shiftMonth(-1) }
-                Spacer(minLength: 2)
+        VStack(spacing: 0) {
+            headerBar(lunarMonth: lunarMonth)
+                .padding(.bottom, 7)
 
-                Button {
-                    month = Date()
-                } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(DateUtil.monthTitle(month))
-                            .font(.app(size: 12, weight: .semibold))
-                            .foregroundStyle(.primary)
-
-                        if isProvisionalYear {
-                            Text("预测")
-                                .font(.app(size: 7, weight: .semibold))
-                                .foregroundStyle(Color(nsColor: .systemOrange))
-                                .padding(.horizontal, 3.5)
-                                .padding(.vertical, 1)
-                                .background(Capsule().fill(Color(nsColor: .systemOrange).opacity(0.12)))
-                        }
-                    }
-                    .contentShape(Rectangle())
+            LazyVGrid(columns: gridColumns, spacing: 0) {
+                ForEach(weekdaySymbols.indices, id: \.self) { index in
+                    Text(weekdaySymbols[index])
+                        .font(.app(size: 9, weight: .medium))
+                        .foregroundStyle(index >= 5 ? accent.opacity(0.60) : Color.primary.opacity(0.36))
+                        .frame(height: 13)
                 }
-                .buttonStyle(.plain)
-                .help("回到今天")
-
-                if !lunarMonth.isEmpty {
-                    Text("农历\(lunarMonth)")
-                        .font(.app(size: 8.5))
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 5)
-                }
-
-                Spacer(minLength: 2)
-                navButton("chevron.right", help: "下个月") { shiftMonth(1) }
-                yearButton("chevron.right.2", help: "下一年") { shiftYear(1) }
+            }
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.055))
+                    .frame(height: 0.5)
             }
 
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(minimum: 28), spacing: 2), count: 7),
-                spacing: 2
-            ) {
-                ForEach(weekdaySymbols, id: \.self) { symbol in
-                    Text(symbol)
-                        .font(.app(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary.opacity(0.7))
-                        .frame(height: 16)
-                }
-
+            LazyVGrid(columns: gridColumns, spacing: 2) {
                 ForEach(days.indices, id: \.self) { index in
                     dayCell(days[index])
                 }
+            }
+            .padding(.top, 4)
+
+            if scheduleNote == nil && selection == nil {
+                // 卡片高度富余时把图例压到底部，顺便解释两种小圆点的含义。
+                Spacer(minLength: 0)
             }
 
             if let scheduleNote {
@@ -239,6 +215,11 @@ struct CalendarPopover: View {
                 }
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+            } else if selection == nil {
+                legend
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
             }
         }
         .padding(12)
@@ -256,84 +237,183 @@ struct CalendarPopover: View {
         }
     }
 
-    private func navButton(_ systemName: String, help: String, action: @escaping () -> Void) -> some View {
+    private func headerBar(lunarMonth: String) -> some View {
+        let calendar = Calendar.current
+        let year = calendar.component(.year, from: month)
+        let monthNumber = calendar.component(.month, from: month)
+
+        return HStack(spacing: 0) {
+            Button {
+                month = dayAnchor
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text("\(monthNumber)月")
+                        .font(.app(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+
+                    Text(String(year))
+                        .font(.app(size: 10, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(0.32))
+
+                    if !lunarMonth.isEmpty {
+                        Text("农历\(lunarMonth)")
+                            .font(.app(size: 8.5))
+                            .foregroundStyle(Color.primary.opacity(0.26))
+                    }
+
+                    if isProvisionalYear {
+                        Text("预测")
+                            .font(.app(size: 7, weight: .semibold))
+                            .foregroundStyle(Color(nsColor: .systemOrange))
+                            .padding(.horizontal, 3.5)
+                            .padding(.vertical, 1.5)
+                            .background(Capsule().fill(Color(nsColor: .systemOrange).opacity(0.12)))
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("回到今天")
+
+            Spacer(minLength: 6)
+
+            HStack(spacing: 0) {
+                navButton("chevron.left.2", help: "上一年", size: 8, width: 17) { shiftYear(-1) }
+                navButton("chevron.left", help: "上个月", size: 9.5, width: 17) { shiftMonth(-1) }
+                navButton("chevron.right", help: "下个月", size: 9.5, width: 17) { shiftMonth(1) }
+                navButton("chevron.right.2", help: "下一年", size: 8, width: 17) { shiftYear(1) }
+            }
+        }
+        .frame(height: 20)
+    }
+
+    /// 图例：解释日子下面那几个小标记，顺便填住卡片底部的空白。
+    private var legend: some View {
+        HStack(spacing: 9) {
+            HStack(spacing: 3) {
+                Circle()
+                    .fill(accent)
+                    .frame(width: 3, height: 3)
+                Text("倒数日")
+            }
+
+            HStack(spacing: 3) {
+                Circle()
+                    .strokeBorder(Color.primary.opacity(0.40), lineWidth: 1)
+                    .frame(width: 4, height: 4)
+                Text("待办")
+            }
+
+            HStack(spacing: 3) {
+                legendChip("休", Color(nsColor: .systemRed))
+                Text("放假")
+            }
+
+            HStack(spacing: 3) {
+                legendChip("班", Color(nsColor: .systemOrange))
+                Text("补班")
+            }
+        }
+        .font(.app(size: 7.5))
+        .foregroundStyle(Color.primary.opacity(0.32))
+    }
+
+    private func legendChip(_ text: String, _ tint: Color) -> some View {
+        Text(text)
+            .font(.app(size: 6.5, weight: .semibold))
+            .foregroundStyle(tint.opacity(0.88))
+            .frame(width: 11, height: 10)
+            .background(
+                RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                    .fill(tint.opacity(0.12))
+            )
+    }
+
+    private func navButton(
+        _ systemName: String,
+        help: String,
+        size: CGFloat,
+        width: CGFloat,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.app(size: 9, weight: .semibold))
+                .font(.app(size: size, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 18, height: 20)
+                .frame(width: width, height: 20)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)
     }
 
-    private func yearButton(_ systemName: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.app(size: 7.5, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .frame(width: 16, height: 20)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
-
-    private func dayCell(_ date: Date?) -> some View {
+    private func dayCell(_ slot: CalendarSlot?) -> some View {
         Group {
-            if let date {
+            if let slot {
+                let date = slot.date
                 let calendar = Calendar.current
+                let start = calendar.startOfDay(for: date)
+                let isAdjacent = slot.isAdjacent
                 let isToday = calendar.isDate(date, inSameDayAs: dayAnchor)
                 let isSelected = selection.map { calendar.isDate(date, inSameDayAs: $0.wrappedValue) } ?? false
-                let isFilled = selection == nil ? isToday : isSelected
+                let isFilled = !isAdjacent && (selection == nil ? isToday : isSelected)
                 let badge = ChineseCalendarInfo.badge(for: date)
-                let hasCountdown = countdownDays.contains(calendar.startOfDay(for: date))
-                let hasTodo = todoDays.contains(calendar.startOfDay(for: date))
+                let hasCountdown = !isAdjacent && countdownDays.contains(start)
+                let hasTodo = !isAdjacent && todoDays.contains(start)
 
                 let cell = VStack(spacing: 0) {
                     Text("\(calendar.component(.day, from: date))")
                         .font(.app(size: 11, weight: isToday || isSelected ? .semibold : .regular))
-                        .foregroundStyle(isFilled ? Color.white : (isToday ? accent : Color.primary.opacity(0.84)))
-                        .frame(width: 24, height: 24)
+                        .foregroundStyle(dayNumberColor(
+                            isAdjacent: isAdjacent,
+                            isToday: isToday,
+                            isSelected: isSelected,
+                            isFilled: isFilled
+                        ))
+                        .frame(width: 22, height: 22)
                         .background {
                             if isFilled {
                                 Circle()
-                                    .fill(accent)
-                            } else if isToday {
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [accent, accent.opacity(0.80)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                                    .shadow(color: accent.opacity(0.32), radius: 3, y: 1.5)
+                            } else if isSelected {
                                 Circle()
-                                    .strokeBorder(accent.opacity(0.5), lineWidth: 1)
+                                    .fill(accent.opacity(0.13))
+                                    .overlay(Circle().strokeBorder(accent.opacity(0.42), lineWidth: 0.8))
+                            } else if isToday && !isAdjacent {
+                                Circle()
+                                    .strokeBorder(accent.opacity(0.50), lineWidth: 1)
                             }
                         }
 
-                    HStack(spacing: 2) {
-                        Text(badge.text)
-                            .font(.app(size: 8, weight: badge.kind == .lunar ? .regular : .medium))
-                            .foregroundStyle(badgeColor(badge))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-
-                        if hasCountdown {
-                            Circle()
-                                .fill(accent)
-                                .frame(width: 3, height: 3)
-                        }
-
-                        if hasTodo {
-                            Circle()
-                                .strokeBorder(Color.primary.opacity(0.42), lineWidth: 1)
-                                .frame(width: 4, height: 4)
-                        }
-                    }
-                    .frame(height: 10)
+                    badgeRow(
+                        badge: badge,
+                        date: date,
+                        isAdjacent: isAdjacent,
+                        isToday: isToday,
+                        hasCountdown: hasCountdown,
+                        hasTodo: hasTodo
+                    )
+                    .frame(height: 9)
                 }
-                .frame(width: 32, height: 34)
+                .frame(width: 30, height: 31)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
 
-                if let selection {
+                if isAdjacent {
+                    // 补位的日子用来翻页，不弹当天的待办。
+                    cell
+                        .onTapGesture { month = start }
+                        .help("跳到这个月")
+                } else if let selection {
                     Button {
-                        selection.wrappedValue = calendar.startOfDay(for: date)
+                        selection.wrappedValue = start
                         onPick?()
                     } label: {
                         cell
@@ -342,7 +422,7 @@ struct CalendarPopover: View {
                 } else {
                     cell
                         .onTapGesture {
-                            presentedDay = calendar.startOfDay(for: date)
+                            presentedDay = start
                         }
                         .popover(isPresented: dayPopoverBinding(for: date), arrowEdge: .bottom) {
                             DayTasksPopover(
@@ -356,8 +436,85 @@ struct CalendarPopover: View {
                 }
             } else {
                 Color.clear
-                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .frame(maxWidth: .infinity, minHeight: 31)
             }
+        }
+    }
+
+    private func dayNumberColor(
+        isAdjacent: Bool,
+        isToday: Bool,
+        isSelected: Bool,
+        isFilled: Bool
+    ) -> Color {
+        if isFilled { return .white }
+        if isAdjacent { return Color.primary.opacity(0.20) }
+        if isToday || isSelected { return accent }
+        return Color.primary.opacity(0.78)
+    }
+
+    @ViewBuilder
+    private func badgeRow(
+        badge: ChineseCalendarInfo.Badge,
+        date: Date,
+        isAdjacent: Bool,
+        isToday: Bool,
+        hasCountdown: Bool,
+        hasTodo: Bool
+    ) -> some View {
+        HStack(spacing: 2) {
+            if isAdjacent {
+                // 相邻月份只留日子数字，下面保持空白。
+            } else {
+                badgeLabel(badge: badge, date: date, isToday: isToday)
+
+                if hasCountdown {
+                    Circle()
+                        .fill(accent)
+                        .frame(width: 3, height: 3)
+                }
+
+                if hasTodo {
+                    Circle()
+                        .strokeBorder(Color.primary.opacity(0.40), lineWidth: 1)
+                        .frame(width: 4, height: 4)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func badgeLabel(
+        badge: ChineseCalendarInfo.Badge,
+        date: Date,
+        isToday: Bool
+    ) -> some View {
+        switch badge.kind {
+        case .rest, .makeup:
+            // 休/班做成小色块，比一片红橙字安静。
+            let tint = badge.kind == .rest ? Color(nsColor: .systemRed) : Color(nsColor: .systemOrange)
+            Text(badge.text)
+                .font(.app(size: 6.5, weight: .semibold))
+                .foregroundStyle(tint.opacity(0.88))
+                .frame(width: 10, height: 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .fill(tint.opacity(0.12))
+                )
+        case .festival:
+            Text(badge.text)
+                .font(.app(size: 7.5, weight: .medium))
+                .foregroundStyle(Color(nsColor: .systemRed).opacity(0.70))
+        case .lunar:
+            // 农历一律压到很淡的灰，只有农历月初和今天稍微提一档。
+            let isMonthStart = ChineseCalendarInfo.isLunarMonthStart(date)
+            Text(badge.text)
+                .font(.app(size: 7.5, weight: isMonthStart ? .medium : .regular))
+                .foregroundStyle(
+                    isToday
+                        ? accent.opacity(0.80)
+                        : Color.primary.opacity(isMonthStart ? 0.44 : 0.27)
+                )
         }
     }
 
@@ -371,17 +528,6 @@ struct CalendarPopover: View {
                 if !presented { self.presentedDay = nil }
             }
         )
-    }
-
-    private func badgeColor(_ badge: ChineseCalendarInfo.Badge) -> Color {
-        switch badge.kind {
-        case .lunar:
-            return Color.secondary
-        case .festival, .rest:
-            return Color(nsColor: .systemRed)
-        case .makeup:
-            return Color(nsColor: .systemOrange)
-        }
     }
 
     private var scheduleNote: String? {
@@ -402,7 +548,7 @@ struct CalendarPopover: View {
         displayYear == 2027
     }
 
-    private var cells: [Date?] {
+    private var cells: [CalendarSlot?] {
         let calendar = Calendar.current
         guard let interval = calendar.dateInterval(of: .month, for: month) else { return [] }
 
@@ -411,12 +557,27 @@ struct CalendarPopover: View {
         let leading = (weekday + 5) % 7
         let dayCount = calendar.range(of: .day, in: .month, for: first)?.count ?? 30
 
-        var result = Array<Date?>(repeating: nil, count: leading)
-        for offset in 0..<dayCount {
-            result.append(calendar.date(byAdding: .day, value: offset, to: first))
+        func slot(_ date: Date?, adjacent: Bool) -> CalendarSlot? {
+            guard let date else { return nil }
+            // 选日期的弹出层不补相邻月份的日子，本月照常。
+            if adjacent && !showsAdjacentDays { return nil }
+            return CalendarSlot(date: date, isAdjacent: adjacent)
         }
+
+        var result: [CalendarSlot?] = (0..<leading).map { index in
+            slot(calendar.date(byAdding: .day, value: index - leading, to: first), adjacent: true)
+        }
+        for offset in 0..<dayCount {
+            result.append(
+                slot(calendar.date(byAdding: .day, value: offset, to: first), adjacent: false)
+            )
+        }
+        var trailing = 0
         while result.count % 7 != 0 {
-            result.append(nil)
+            result.append(
+                slot(calendar.date(byAdding: .day, value: dayCount + trailing, to: first), adjacent: true)
+            )
+            trailing += 1
         }
         return result
     }
