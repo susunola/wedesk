@@ -161,9 +161,12 @@ struct CalendarPopover: View {
     var selection: Binding<Date>? = nil
     var initialMonth: Date? = nil
     var onPick: (() -> Void)? = nil
+    /// 由外部传入的"今天"，跨午夜时刷新，保证高亮不会停在旧日子。
+    var dayAnchor = Date()
 
     @State private var month = Date()
     @State private var presentedDay: Date?
+    @State private var lastAnchor = Date()
 
     private let weekdaySymbols = ["一", "二", "三", "四", "五", "六", "日"]
 
@@ -240,7 +243,16 @@ struct CalendarPopover: View {
         }
         .padding(12)
         .onAppear {
-            month = initialMonth ?? selection?.wrappedValue ?? Date()
+            month = initialMonth ?? selection?.wrappedValue ?? dayAnchor
+            lastAnchor = dayAnchor
+        }
+        .onChange(of: dayAnchor) { _, newValue in
+            let calendar = Calendar.current
+            // 只在当前显示的仍是"自动跟着今天"那个月时翻页；用户自己翻到别的月份看日子时不打断。
+            if calendar.isDate(month, equalTo: lastAnchor, toGranularity: .month) {
+                month = newValue
+            }
+            lastAnchor = newValue
         }
     }
 
@@ -272,7 +284,7 @@ struct CalendarPopover: View {
         Group {
             if let date {
                 let calendar = Calendar.current
-                let isToday = calendar.isDateInToday(date)
+                let isToday = calendar.isDate(date, inSameDayAs: dayAnchor)
                 let isSelected = selection.map { calendar.isDate(date, inSameDayAs: $0.wrappedValue) } ?? false
                 let isFilled = selection == nil ? isToday : isSelected
                 let badge = ChineseCalendarInfo.badge(for: date)

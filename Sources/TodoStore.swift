@@ -72,6 +72,9 @@ final class TodoStore: ObservableObject {
     @Published private(set) var avatarImage: NSImage?
     @Published private(set) var hotKey = HotKeySetting.default
     @Published private(set) var hotKeyConflict = false
+    /// 卡片里的"今天"都锚定这个时间。跨午夜或睡眠醒来后由下面的看门狗刷新，
+    /// 所有观察 store 的卡片会一起重算，日历高亮不会再停在开机那天。
+    @Published private(set) var dayAnchor = Date()
 
     private let itemsKey = "desktodo.items.v1"
     private let countdownsKey = "desktodo.countdowns.v1"
@@ -80,6 +83,9 @@ final class TodoStore: ObservableObject {
     private let avatarOnKey = "desktodo.avatar.on.v1"
     private let avatarPathKey = "desktodo.avatar.path.v1"
     private let hotKeyKey = "desktodo.hotkey.v1"
+
+    private var dayTimer: Timer?
+    private var dayChangeObserver: NSObjectProtocol?
 
     init() {
         pinned = UserDefaults.standard.object(forKey: pinnedKey) as? Bool ?? true
@@ -98,6 +104,32 @@ final class TodoStore: ObservableObject {
             countdowns = decoded.sorted { $0.date < $1.date }
         }
         avatarImage = Self.loadAvatarImage()
+        startDayRolloverWatch()
+    }
+
+    // MARK: - Day rollover
+
+    private func startDayRolloverWatch() {
+        dayChangeObserver = NotificationCenter.default.addObserver(
+            forName: .NSCalendarDayChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshDayAnchor()
+        }
+
+        // 睡眠期间系统通知可能整段错过，所以再挂一个每分钟的心跳兜底。
+        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            self?.refreshDayAnchor()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        dayTimer = timer
+    }
+
+    private func refreshDayAnchor() {
+        let now = Date()
+        guard !Calendar.current.isDate(now, inSameDayAs: dayAnchor) else { return }
+        dayAnchor = now
     }
 
     var accent: Color {

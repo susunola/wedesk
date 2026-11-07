@@ -146,7 +146,8 @@ struct CalendarWidgetRoot: View {
                 countdownDays: store.upcomingCountdownDays,
                 todoDays: store.pendingTodoDays,
                 tasksProvider: { store.pendingTodos(on: $0) },
-                onToggleTask: { store.toggle($0) }
+                onToggleTask: { store.toggle($0) },
+                dayAnchor: store.dayAnchor
             )
         }
     }
