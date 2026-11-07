@@ -168,24 +168,20 @@ struct CalendarPopover: View {
     /// 选日期的弹出层只显示本月，避免点了灰色日子后日历没翻页。
     private var showsAdjacentDays: Bool { selection == nil }
 
-    private var gridColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: 28), spacing: 2), count: 7)
-    }
-
     var body: some View {
-        let days = cells
         let lunarMonth = ChineseCalendarInfo.lunarMonthName(for: month)
 
         VStack(spacing: 0) {
             headerBar(lunarMonth: lunarMonth)
-                .padding(.bottom, 7)
+                .padding(.bottom, 6)
 
-            LazyVGrid(columns: gridColumns, spacing: 0) {
+            HStack(spacing: 0) {
                 ForEach(weekdaySymbols.indices, id: \.self) { index in
                     Text(weekdaySymbols[index])
-                        .font(.app(size: 9, weight: .medium))
-                        .foregroundStyle(index >= 5 ? accent.opacity(0.60) : Color.primary.opacity(0.36))
-                        .frame(height: 13)
+                        .font(.app(size: 9.5, weight: .medium))
+                        .foregroundStyle(index >= 5 ? accent.opacity(0.62) : Color.primary.opacity(0.42))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 12)
                 }
             }
             .overlay(alignment: .bottom) {
@@ -194,17 +190,19 @@ struct CalendarPopover: View {
                     .frame(height: 0.5)
             }
 
-            LazyVGrid(columns: gridColumns, spacing: 2) {
-                ForEach(days.indices, id: \.self) { index in
-                    dayCell(days[index])
+            // 行高等分整张卡片，字号才敢放大；弹出层没有确定高度时自然退回内容高度。
+            VStack(spacing: 0) {
+                ForEach(rowsOfCells.indices, id: \.self) { rowIndex in
+                    HStack(spacing: 0) {
+                        ForEach(Array(rowsOfCells[rowIndex].enumerated()), id: \.offset) { _, slot in
+                            dayCell(slot)
+                        }
+                    }
+                    .frame(maxHeight: 44)
                 }
             }
-            .padding(.top, 4)
-
-            if scheduleNote == nil && selection == nil {
-                // 卡片高度富余时把图例压到底部，顺便解释两种小圆点的含义。
-                Spacer(minLength: 0)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.top, 3)
 
             if let scheduleNote {
                 HStack(spacing: 4) {
@@ -215,14 +213,15 @@ struct CalendarPopover: View {
                 }
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 6)
+                .padding(.top, 5)
             } else if selection == nil {
                 legend
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
             }
         }
-        .padding(12)
+        .padding(.horizontal, 14)
+        .padding(.top, 11)
+        .padding(.bottom, 9)
         .onAppear {
             month = initialMonth ?? selection?.wrappedValue ?? dayAnchor
             lastAnchor = dayAnchor
@@ -235,6 +234,19 @@ struct CalendarPopover: View {
             }
             lastAnchor = newValue
         }
+    }
+
+    /// 按周切行，方便每行等分卡片剩余高度。
+    private var rowsOfCells: [[CalendarSlot?]] {
+        let items = cells
+        var rows: [[CalendarSlot?]] = []
+        var index = 0
+        while index < items.count {
+            let end = Swift.min(index + 7, items.count)
+            rows.append(Array(items[index..<end]))
+            index = end
+        }
+        return rows
     }
 
     private func headerBar(lunarMonth: String) -> some View {
@@ -361,16 +373,19 @@ struct CalendarPopover: View {
                 let hasCountdown = !isAdjacent && countdownDays.contains(start)
                 let hasTodo = !isAdjacent && todoDays.contains(start)
 
-                let cell = VStack(spacing: 0) {
+                let cell = VStack(spacing: 1) {
                     Text("\(calendar.component(.day, from: date))")
-                        .font(.app(size: 11, weight: isToday || isSelected ? .semibold : .regular))
+                        .font(.app(
+                            size: isAdjacent ? 10.5 : 12,
+                            weight: isToday || isSelected ? .semibold : .medium
+                        ))
                         .foregroundStyle(dayNumberColor(
                             isAdjacent: isAdjacent,
                             isToday: isToday,
                             isSelected: isSelected,
                             isFilled: isFilled
                         ))
-                        .frame(width: 22, height: 22)
+                        .frame(width: 23, height: 23)
                         .background {
                             if isFilled {
                                 Circle()
@@ -400,9 +415,8 @@ struct CalendarPopover: View {
                         hasCountdown: hasCountdown,
                         hasTodo: hasTodo
                     )
-                    .frame(height: 9)
+                    .frame(height: 10)
                 }
-                .frame(width: 30, height: 31)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
 
@@ -436,7 +450,7 @@ struct CalendarPopover: View {
                 }
             } else {
                 Color.clear
-                    .frame(maxWidth: .infinity, minHeight: 31)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
@@ -448,9 +462,9 @@ struct CalendarPopover: View {
         isFilled: Bool
     ) -> Color {
         if isFilled { return .white }
-        if isAdjacent { return Color.primary.opacity(0.20) }
+        if isAdjacent { return Color.primary.opacity(0.26) }
         if isToday || isSelected { return accent }
-        return Color.primary.opacity(0.78)
+        return Color.primary.opacity(0.85)
     }
 
     @ViewBuilder
@@ -494,26 +508,26 @@ struct CalendarPopover: View {
             // 休/班做成小色块，比一片红橙字安静。
             let tint = badge.kind == .rest ? Color(nsColor: .systemRed) : Color(nsColor: .systemOrange)
             Text(badge.text)
-                .font(.app(size: 6.5, weight: .semibold))
-                .foregroundStyle(tint.opacity(0.88))
-                .frame(width: 10, height: 9)
+                .font(.app(size: 7.5, weight: .semibold))
+                .foregroundStyle(tint.opacity(0.90))
+                .frame(width: 12, height: 11)
                 .background(
-                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                        .fill(tint.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(tint.opacity(0.13))
                 )
         case .festival:
             Text(badge.text)
-                .font(.app(size: 7.5, weight: .medium))
-                .foregroundStyle(Color(nsColor: .systemRed).opacity(0.70))
+                .font(.app(size: 8.5, weight: .medium))
+                .foregroundStyle(Color(nsColor: .systemRed).opacity(0.80))
         case .lunar:
-            // 农历一律压到很淡的灰，只有农历月初和今天稍微提一档。
+            // 农历比阳历小一档、颜色更淡，但必须一眼读得清。
             let isMonthStart = ChineseCalendarInfo.isLunarMonthStart(date)
             Text(badge.text)
-                .font(.app(size: 7.5, weight: isMonthStart ? .medium : .regular))
+                .font(.app(size: 8.5, weight: isMonthStart ? .semibold : .regular))
                 .foregroundStyle(
                     isToday
-                        ? accent.opacity(0.80)
-                        : Color.primary.opacity(isMonthStart ? 0.44 : 0.27)
+                        ? accent.opacity(0.90)
+                        : Color.primary.opacity(isMonthStart ? 0.62 : 0.48)
                 )
         }
     }
