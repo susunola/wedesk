@@ -17,6 +17,22 @@ struct Todo: Identifiable, Codable, Equatable {
     var hasReminder: Bool {
         dueAt != nil && reminderLead != nil
     }
+
+    /// 日历上记的事只到"哪一天"：到期时间正好落在午夜，视为全天。
+    var isAllDay: Bool {
+        guard let due = dueAt else { return false }
+        return Calendar.current.startOfDay(for: due) == due
+    }
+
+    /// 全天事项到当天结束才算逾期，带时刻的到点即逾期。
+    func isOverdue(at now: Date = Date()) -> Bool {
+        guard !done, let due = dueAt else { return false }
+        if isAllDay {
+            let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: due) ?? due
+            return endOfDay <= now
+        }
+        return due < now
+    }
 }
 
 enum MentionParser {
@@ -269,6 +285,12 @@ final class TodoStore: ObservableObject {
         persistItems()
         scheduleReminder(for: todo)
         return todo
+    }
+
+    /// 在日历某一天记一件事：不带时刻，也不发提醒。
+    @discardableResult
+    func add(_ title: String, onDay date: Date) -> Todo? {
+        add(title, dueAt: Calendar.current.startOfDay(for: date))
     }
 
     func toggle(_ item: Todo) {

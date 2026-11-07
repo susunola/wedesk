@@ -107,6 +107,7 @@ struct ContentView: View {
                     todoDays: store.pendingTodoDays,
                     tasksProvider: { store.pendingTodos(on: $0) },
                     onToggleTask: { store.toggle($0) },
+                    onAddTask: { title, date in store.add(title, onDay: date) },
                     dayAnchor: store.dayAnchor
                 )
                     .frame(width: 260)
@@ -590,14 +591,13 @@ struct TodoRow: View {
     @State private var showEditor = false
 
     private var isOverdue: Bool {
-        guard let due = item.dueAt else { return false }
-        return !item.done && due < now
+        item.isOverdue(at: now)
     }
 
     private var dueColor: Color {
         guard let due = item.dueAt else { return .secondary }
         if item.done { return .secondary }
-        if due < now { return TodoStyle.overdue }
+        if isOverdue { return TodoStyle.overdue }
         if Calendar.current.isDateInToday(due) || due.timeIntervalSince(now) < 86_400 {
             return TodoStyle.soon
         }

@@ -26,7 +26,7 @@ struct TodayPanel: View {
     private var agenda: [Todo] { store.todayAgenda }
 
     private var overdueCount: Int {
-        agenda.filter { $0.dueAt.map { $0 < now } ?? false }.count
+        agenda.filter { $0.isOverdue(at: now) }.count
     }
 
     private var badge: ChineseCalendarInfo.Badge {
@@ -199,7 +199,7 @@ struct TodayPanel: View {
     }
 
     private func agendaRow(_ item: Todo) -> some View {
-        let isOverdue = item.dueAt.map { $0 < now } ?? false
+        let isOverdue = item.isOverdue(at: now)
 
         return HStack(spacing: 8) {
             Button {
@@ -238,7 +238,8 @@ struct TodayPanel: View {
     private func dueLabel(for item: Todo, overdue: Bool) -> String {
         guard let due = item.dueAt else { return "" }
         if overdue, !Calendar.current.isDateInToday(due) {
-            return "\(DateUtil.monthDay(due)) \(DateUtil.timeOnly(due))"
+            let day = DateUtil.monthDay(due)
+            return item.isAllDay ? day : "\(day) \(DateUtil.timeOnly(due))"
         }
         return DateUtil.todoDueLabel(due, now: now)
     }

@@ -144,6 +144,7 @@ struct CalendarWidgetRoot: View {
                 todoDays: store.pendingTodoDays,
                 tasksProvider: { store.pendingTodos(on: $0) },
                 onToggleTask: { store.toggle($0) },
+                onAddTask: { title, date in store.add(title, onDay: date) },
                 dayAnchor: store.dayAnchor
             )
         }

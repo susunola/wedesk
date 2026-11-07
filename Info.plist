@@ -28,5 +28,9 @@
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>点开日历卡片上的某一天时，读取苹果日历里当天的日程并显示在浮层中。WeDesk 只读取，不会修改或上传日程。</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>点开日历卡片上的某一天时，读取苹果日历里当天的日程并显示在浮层中。WeDesk 只读取，不会修改或上传日程。</string>
 </dict>
 </plist>

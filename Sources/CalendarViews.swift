@@ -86,26 +86,27 @@ enum DateUtil {
 
     static func todoDueLabel(_ date: Date, now: Date = Date()) -> String {
         let calendar = Calendar.current
-        let time = timeFormatter.string(from: date)
+        // 落在午夜的到期时间代表"全天"，不带时刻。
+        let time = calendar.startOfDay(for: date) == date ? "" : " " + timeFormatter.string(from: date)
 
         if calendar.isDateInToday(date) {
-            return "今天 \(time)"
+            return "今天\(time)"
         }
         if calendar.isDateInTomorrow(date) {
-            return "明天 \(time)"
+            return "明天\(time)"
         }
         if calendar.isDateInYesterday(date) {
-            return "昨天 \(time)"
+            return "昨天\(time)"
         }
 
         let delta = dayDelta(to: date, from: now)
         if delta > 1 && delta < 7 {
-            return "\(weekdayFormatter.string(from: date)) \(time)"
+            return "\(weekdayFormatter.string(from: date))\(time)"
         }
 
         let isThisYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
         let day = (isThisYear ? monthDayFormatter : monthDayYearFormatter).string(from: date)
-        return "\(day) \(time)"
+        return "\(day)\(time)"
     }
 
     static func todoAbsoluteLabel(_ date: Date) -> String {
@@ -153,6 +154,7 @@ struct CalendarPopover: View {
     var todoDays: Set<Date> = []
     var tasksProvider: ((Date) -> [Todo])? = nil
     var onToggleTask: ((Todo) -> Void)? = nil
+    var onAddTask: ((String, Date) -> Void)? = nil
     var selection: Binding<Date>? = nil
     var initialMonth: Date? = nil
     var onPick: (() -> Void)? = nil
@@ -443,9 +445,10 @@ struct CalendarPopover: View {
                                 date: date,
                                 accent: accent,
                                 tasks: tasksProvider?(date) ?? [],
-                                onToggle: { onToggleTask?($0) }
+                                onToggle: { onToggleTask?($0) },
+                                onAdd: onAddTask
                             )
-                            .frame(width: 232)
+                            .frame(width: 262)
                         }
                 }
             } else {
@@ -620,41 +623,204 @@ struct DayTasksPopover: View {
     let accent: Color
     let tasks: [Todo]
     let onToggle: (Todo) -> Void
+    var onAdd: ((String, Date) -> Void)? = nil
+
+    @ObservedObject private var systemStore = SystemCalendarStore.shared
+    @State private var draft = ""
+
+    private let visibleEventLimit = 4
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(DateUtil.shortDate(date))
-                    .font(.app(size: 11.5, weight: .semibold))
-                Text("农历\(ChineseCalendarInfo.lunarMonthName(for: date))")
-                    .font(.app(size: 8.5))
-                    .foregroundStyle(.tertiary)
-                Spacer(minLength: 0)
-                Text("\(tasks.count)")
-                    .font(.app(size: 9.5, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.tertiary)
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            header
 
             Rectangle()
                 .fill(Color.primary.opacity(0.07))
                 .frame(height: 0.5)
 
-            if tasks.isEmpty {
-                Text("这一天还没有待办")
-                    .font(.app(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 3)
-            } else {
-                ForEach(tasks) { task in
-                    DayTaskRow(task: task, accent: accent, onToggle: onToggle)
-                }
+            eventsSection
+
+            sectionLabel("待办", count: tasks.count)
+
+            tasksSection
+
+            if onAdd != nil {
+                composer
             }
         }
         .padding(10)
+        .onAppear { systemStore.load(date) }
+        .onChange(of: date) { _, newValue in
+            systemStore.load(newValue)
+            draft = ""
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(DateUtil.shortDate(date))
+                .font(.app(size: 11.5, weight: .semibold))
+            Text(ChineseCalendarInfo.fullLunarLabel(for: date))
+                .font(.app(size: 8.5))
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: 苹果日历
+
+    @ViewBuilder
+    private var eventsSection: some View {
+        let events = systemStore.events
+        if !events.isEmpty {
+            sectionLabel("苹果日历", count: events.count)
+
+            ForEach(events.prefix(visibleEventLimit)) { event in
+                SystemEventRow(event: event)
+            }
+
+            if events.count > visibleEventLimit {
+                Text("还有 \(events.count - visibleEventLimit) 条日程")
+                    .font(.app(size: 8.5))
+                    .foregroundStyle(.tertiary)
+            }
+        } else if systemStore.access != .granted {
+            accessRow
+        }
+    }
+
+    private var accessRow: some View {
+        let isBlocked = systemStore.access == .blocked || systemStore.access == .writeOnly
+
+        return HStack(spacing: 5) {
+            Image(systemName: "calendar")
+                .font(.app(size: 9))
+            Text(systemStore.access.hintText)
+                .font(.app(size: 9))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Button(systemStore.isBusy ? "申请中" : (isBlocked ? "去开启" : "允许读取")) {
+                if isBlocked {
+                    systemStore.openPrivacySettings()
+                } else {
+                    systemStore.requestAccess()
+                }
+            }
+            .buttonStyle(.borderless)
+            .font(.app(size: 9, weight: .medium))
+            .foregroundStyle(accent)
+        }
+        .foregroundStyle(.tertiary)
+        .padding(.vertical, 1)
+    }
+
+    // MARK: 待办
+
+    @ViewBuilder
+    private var tasksSection: some View {
+        if tasks.isEmpty {
+            Text("这一天还没有待办")
+                .font(.app(size: 10.5))
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 2)
+        } else {
+            ForEach(tasks) { task in
+                DayTaskRow(task: task, accent: accent, onToggle: onToggle)
+            }
+        }
+    }
+
+    private func sectionLabel(_ title: String, count: Int) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.app(size: 8.5, weight: .medium))
+                .foregroundStyle(.tertiary)
+            Text("\(count)")
+                .font(.app(size: 8.5).monospacedDigit())
+                .foregroundStyle(.tertiary.opacity(0.7))
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 1)
+    }
+
+    // MARK: 快速记录
+
+    private var composer: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "square.and.pencil")
+                .font(.app(size: 9))
+                .foregroundStyle(.tertiary)
+
+            TextField("记一件事，回车保存", text: $draft)
+                .font(.app(size: 10.5))
+                .textFieldStyle(.plain)
+                .onSubmit(submit)
+
+            if hasDraft {
+                Button("添加") { submit() }
+                    .buttonStyle(.borderless)
+                    .font(.app(size: 9.5, weight: .medium))
+                    .foregroundStyle(accent)
+            }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(accent.opacity(hasDraft ? 0.34 : 0.16), lineWidth: 0.6)
+        )
+        .padding(.top, 2)
+    }
+
+    private var hasDraft: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let onAdd else { return }
+        onAdd(text, date)
+        draft = ""
     }
 }
 
-private struct DayTaskRow: View {
+/// 苹果日历里的一条日程，只读展示。
+struct SystemEventRow: View {
+    let event: SystemEvent
+
+    var body: some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 1, style: .continuous)
+                .fill(event.tint.opacity(0.85))
+                .frame(width: 2.5, height: 13)
+
+            Text(event.timeText)
+                .font(.app(size: 9.5).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 33, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(event.title)
+                    .font(.app(size: 10.5, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(event.calendarTitle)
+                    .font(.app(size: 8.5))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 1)
+    }
+}
+
+struct DayTaskRow: View {
     let task: Todo
     let accent: Color
     let onToggle: (Todo) -> Void
@@ -662,8 +828,7 @@ private struct DayTaskRow: View {
     @State private var hovered = false
 
     private var isOverdue: Bool {
-        guard let due = task.dueAt else { return false }
-        return due < Date()
+        task.isOverdue()
     }
 
     var body: some View {
@@ -687,7 +852,7 @@ private struct DayTaskRow: View {
 
                 HStack(spacing: 4) {
                     if let due = task.dueAt {
-                        Text(DateUtil.timeOnly(due))
+                        Text(task.isAllDay ? "全天" : DateUtil.timeOnly(due))
                             .font(.app(size: 9.5).monospacedDigit())
                             .foregroundStyle(isOverdue ? Color(nsColor: .systemRed) : Color.secondary)
                     }
